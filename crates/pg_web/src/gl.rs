@@ -257,6 +257,35 @@ pub fn points(pts: &[V], cols: &[V], r: f32) -> Geo {
     g
 }
 
+/// Solid between two matched closed loops (`inner[i]` pairs with `outer[i]`, xz coordinates)
+/// extruded along y from 0 to `h`: both caps plus inner and outer walls, flat-shaded.
+/// Non-indexed, so loops of any length fit (e.g. gear outlines with many teeth).
+pub fn prism(inner: &[[f32; 2]], outer: &[[f32; 2]], h: f32) -> Geo {
+    let mut g = Geo::default();
+    let mut tri = |a: V, b: V, c: V| {
+        let n = math::norm(math::cross(math::sub(b, a), math::sub(c, a)));
+        for p in [a, b, c] {
+            g.pos.extend(p);
+            g.nrm.extend(n);
+        }
+    };
+    let n = inner.len().min(outer.len());
+    for i in 0..n {
+        let j = (i + 1) % n;
+        let at = |p: [f32; 2], y: f32| [p[0], y, p[1]];
+        for y in [0.0, h] {
+            tri(at(inner[i], y), at(outer[i], y), at(outer[j], y));
+            tri(at(inner[i], y), at(outer[j], y), at(inner[j], y));
+        }
+        for l in [inner, outer] {
+            let (a, b, c, d) = (at(l[i], 0.0), at(l[j], 0.0), at(l[j], h), at(l[i], h));
+            tri(a, b, c);
+            tri(a, c, d);
+        }
+    }
+    g
+}
+
 /// Line segments from point pairs.
 pub fn lines(pts: &[V]) -> Geo {
     Geo { pos: pts.iter().flatten().copied().collect(), lines: true, ..Geo::default() }
@@ -531,6 +560,20 @@ mod tests {
             let wind = math::cross(math::sub(v(1), v(0)), math::sub(v(2), v(0)));
             assert!(math::dot(n, math::sub(v(0), c)) > 0.0);
             assert!(math::dot(wind, n) > 0.0, "triangle {t}");
+        }
+    }
+
+    #[test]
+    fn prism_caps_and_walls() {
+        let sq = |r: f32| [[r, 0.0], [0.0, r], [-r, 0.0], [0.0, -r]];
+        let g = prism(&sq(1.0), &sq(2.0), 0.5);
+        assert!(g.idx.is_empty() && !g.lines);
+        // 4 segments × (2 caps + 2 walls) × 2 triangles × 3 vertices.
+        assert_eq!(g.pos.len(), 4 * 8 * 3 * 3);
+        assert_eq!(g.nrm.len(), g.pos.len());
+        assert!(g.pos.chunks(3).all(|p| p[1] == 0.0 || p[1] == 0.5));
+        for n in g.nrm.chunks(3) {
+            assert!((n[0] * n[0] + n[1] * n[1] + n[2] * n[2] - 1.0).abs() < 1e-5);
         }
     }
 }

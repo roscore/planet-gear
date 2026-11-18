@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>planet-gear</title>
+<link data-trunk rel="rust" href="crates/pg_web/Cargo.toml" data-type="main">
+<link data-trunk rel="copy-file" href="web/boot.js">
+<style>
+:root { color-scheme: light dark; --bg: #f4f5f7; --fg: #1d2026; --card: #fff; --line: #d5d8de; --acc: #2f6fd6; }
+@media (prefers-color-scheme: dark) { :root { --bg: #14171c; --fg: #e4e6ea; --card: #1d2128; --line: #343a44; --acc: #6ea2ff; } }
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/1.4 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+header { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--line); }
+header h1 { font-size: 17px; margin: 0; flex: 1; }
+main { display: flex; flex-wrap: wrap; gap: 12px; padding: 12px; }
+#stage { flex: 2 1 520px; min-width: 0; }
+#side { flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+#wrap { position: relative; height: 62vh; min-height: 320px; border-radius: 8px; overflow: hidden; background: #000; }
+#gl { width: 100%; height: 100%; display: block; touch-action: none; }
+#nogl { display: none; padding: 20px; color: #ddd; }
+#hud { position: absolute; left: 8px; top: 8px; background: rgba(0,0,0,.55); color: #fff; padding: 6px 9px; border-radius: 6px; font: 12px/1.45 ui-monospace, monospace; pointer-events: none; white-space: pre; }
+#tools { position: absolute; right: 8px; top: 8px; display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+#tools button, .row button { font: inherit; font-size: 12px; padding: 4px 8px; border-radius: 5px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; }
+#tools button.on { background: var(--acc); color: #fff; }
+#tools label { color: #fff; font-size: 12px; background: rgba(0,0,0,.45); padding: 2px 6px; border-radius: 5px; }
+.row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
+.grid label { display: flex; flex-direction: column; font-size: 12px; }
+input, select { font: inherit; padding: 3px 5px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--fg); min-width: 0; }
+table { border-collapse: collapse; width: 100%; font-size: 12px; }
+td, th { border-bottom: 1px solid var(--line); padding: 3px 4px; text-align: right; }
+td:first-child, th:first-child { text-align: left; }
+#found tr[data-i] { cursor: pointer; }
+#found tr[data-i]:hover { background: var(--acc); color: #fff; }
+#plot { width: 100%; height: 220px; display: block; }
+.warn { color: #d9822b; } .bad { color: #e0464e; } .ok { color: #2ea44f; }
+small { opacity: .75; }
+h2 { font-size: 14px; margin: 0 0 6px; }
+</style>
+</head><body>
+<header><h1 data-ko="planet-gear — 로봇 관절용 유성기어 설계기">planet-gear — planetary gearbox designer</h1><button id="lang">한국어</button></header>
+<main>
+<section id="stage">
+  <div id="wrap">
+    <canvas id="gl"></canvas>
+    <div id="nogl" data-ko="WebGL2를 사용할 수 없습니다. 수치 결과와 2D 그래프는 그대로 동작합니다.">WebGL2 is not available. Numbers and 2D plots still work.</div>
+    <div id="hud"></div>
+    <div id="tools">
+      <button id="t-sf" data-ko="SF 색상">SF colours</button>
+      <button id="t-carrier" class="on" data-ko="캐리어">Carrier</button>
+      <button id="t-play" class="on" data-ko="회전">Rotate</button>
+      <button id="t-explode" data-ko="분해">Exploded</button>
+      <label><span data-ko="속도">Speed</span> <input id="slow" type="range" min="0" max="1" step="0.01" value="0.3"></label>
+    </div>
+  </div>
+  <div class="row">
+    <button data-view="persp" data-ko="원근">Perspective</button>
+    <button data-view="front" data-ko="정면">Front</button>
+    <button data-view="side" data-ko="측면">Side</button>
+    <button data-view="exploded" data-ko="분해도">Exploded</button>
+    <small data-ko="왼쪽 드래그 회전 · 오른쪽/두 손가락 이동 · 휠/핀치 확대 · 더블클릭 초기화 · 유성기어 반경 방향 드래그 = Zp ±1 · 링 테두리 드래그 = 모듈">Left drag orbit · right drag / two fingers pan · wheel / pinch zoom · double-click reset · drag a planet radially = Zp ±1 · drag the ring rim = module</small>
+  </div>
+  <div class="card" style="margin-top:12px">
+    <h2 data-ko="모듈에 따른 안전계수">Safety factor vs module</h2>
+    <canvas id="plot"></canvas>
+  </div>
+</section>
+<section id="side">
+  <div class="card">
+    <h2 data-ko="입력">Inputs</h2>
+    <div class="grid" id="form">
+      <label><span data-ko="선기어 잇수 Zs">Sun teeth Zs</span><input id="zs" type="number" min="6" max="150" value="18"></label>
+      <label><span data-ko="유성기어 잇수 Zp">Planet teeth Zp</span><input id="zp" type="number" min="6" max="150" value="36"></label>
+      <label><span data-ko="유성기어 수 N">Planets N</span><input id="n" type="number" min="2" max="6" value="3"></label>
+      <label><span data-ko="모듈 m (mm)">Module m (mm)</span><input id="m" type="number" min="0.3" max="3" step="0.05" value="0.8"></label>
+      <label><span data-ko="치폭 b (mm)">Face width b (mm)</span><input id="b" type="number" min="1" max="100" step="0.5" value="8"></label>
+      <label><span data-ko="압력각">Pressure angle</span><select id="alpha"><option value="20">20°</option><option value="14.5">14.5°</option><option value="25">25°</option></select></label>
+      <label><span data-ko="모터 토크 (N·m)">Motor torque (N·m)</span><input id="torque" type="number" min="0" step="0.05" value="0.3"></label>
+      <label><span data-ko="모터 속도 (rpm)">Motor speed (rpm)</span><input id="rpm" type="number" step="100" value="3000"></label>
+      <label><span data-ko="선기어 재료">Sun material</span><select id="mat0"></select></label>
+      <label><span data-ko="유성기어 재료">Planet material</span><select id="mat1"></select></label>
+      <label><span data-ko="링기어 재료">Ring material</span><select id="mat2"></select></label>
+      <label><span data-ko="프린팅 감쇠계수">Print knock-down</span><input id="knock" type="number" min="0.1" max="1" step="0.05" value="0.6"></label>
+      <label><span data-ko="고정 요소">Fixed member</span><select id="fixed">
+        <option data-ko="링 고정 (선 입력, 캐리어 출력)">ring fixed (sun in, carrier out)</option>
+        <option data-ko="캐리어 고정 (선 입력, 링 출력)">carrier fixed (sun in, ring out)</option>
+        <option data-ko="선 고정 (링 입력, 캐리어 출력)">sun fixed (ring in, carrier out)</option></select></label>
+      <label><span data-ko="하중분담계수">Load-sharing factor</span><input id="share" type="number" min="1" max="2" step="0.05" value="1.15"></label>
+      <label><span data-ko="맞물림당 효율">Efficiency per mesh</span><input id="eta" type="number" min="0.5" max="1" step="0.005" value="0.98"></label>
+    </div>
+  </div>
+  <div class="card"><h2 data-ko="결과">Results</h2><div id="out"></div></div>
+  <div class="card">
+    <h2 data-ko="설계 찾기">Find designs</h2>
+    <div class="grid">
+      <label><span data-ko="목표 감속비">Target ratio</span><input id="target" type="number" step="0.1" value="6"></label>
+      <label><span data-ko="허용오차 ±">Tolerance ±</span><input id="tol" type="number" min="0" step="0.05" value="0.3"></label>
+      <label><span data-ko="최대 외경 (mm)">Max outer dia (mm)</span><input id="maxod" type="number" min="5" value="90"></label>
+      <label>&nbsp;<button id="go" data-ko="찾기">Search</button></label>
+    </div>
+    <table id="found"></table>
+  </div>
+  <small data-ko="교육용 추정치입니다. 로봇에 맡기기 전에 실제 시험과 규격(ISO 6336, AGMA)으로 검증하세요.">Educational estimates — validate with real tests / standards (ISO 6336, AGMA) before trusting a robot with it.</small>
+</section>
+</main>
+</body></html>

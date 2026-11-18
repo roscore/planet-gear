@@ -1,0 +1,9 @@
+[workspace]
+members = ["crates/pg_core", "crates/pg_web"]
+resolver = "2"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
